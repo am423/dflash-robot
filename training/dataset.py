@@ -60,8 +60,7 @@ class DFlashTraceDataset(IterableDataset):
             random.Random(seed).shuffle(self.trace_paths)
 
     def __iter__(self) -> Iterator[dict]:
-        """Yield training batches: (input_ids, target_features, positions_q,
-        positions_k, labels, loss_weights, batch_mask)"""
+        """Yield training batches."""
         worker_info = torch.utils.data.get_worker_info()
         paths = self.trace_paths
         if worker_info is not None:
@@ -72,10 +71,55 @@ class DFlashTraceDataset(IterableDataset):
 
         for path in paths:
             try:
-                trace = torch.load(path, map_location="cpu", weights_only=False)
-                yield from self._process_trace(trace)
-            except Exception:
+                if path.suffix == '.pt':
+                    trace = torch.load(path, map_location="cpu", weights_only=False)
+                    yield from self._process_trace(trace)
+                elif path.suffix == '.bin' or path.name.startswith('trace_'):
+                    yield from self._process_raw_trace(str(path))
+            except Exception as e:
                 continue
+
+    def _process_raw_trace(self, path: str) -> Iterator[dict]:
+        """Process a raw binary trace from test_generate --dump-traces.
+        
+        Binary format:
+          int32_t n_steps
+          uint16_t hidden_features[n_steps * feat_dim]  (bf16)
+          int32_t  next_tokens[n_steps]
+        """
+        import struct
+        with open(path, 'rb') as f:
+            n_steps_bytes = f.read(4)
+            if len(n_steps_bytes) < 4:
+                return
+            n_steps = struct.unpack('<i', n_steps_bytes)[0]
+            if n_steps <= 0 or n_steps > 10000:
+                return
+            
+            feat_dim = DRAFT_CONFIG['n_target_features'] * DRAFT_CONFIG['hidden_size']
+            feat_bytes = n_steps * feat_dim * 2  # uint16 = 2 bytes
+            tok_bytes = n_steps * 4
+            
+            feat_data = f.read(feat_bytes)
+            tok_data = f.read(tok_bytes)
+            
+            if len(feat_data) < feat_bytes or len(tok_data) < tok_bytes:
+                return
+            
+            # Convert to tensors
+            features = torch.frombuffer(
+                bytearray(feat_data), dtype=torch.uint16
+            ).view(n_steps, feat_dim).to(torch.bfloat16)
+            
+            tokens = torch.frombuffer(
+                bytearray(tok_data), dtype=torch.int32
+            )
+            
+            trace = {
+                'hidden_features': features,
+                'next_tokens': tokens,
+            }
+            yield from self._process_trace(trace)
 
     def _process_trace(self, trace: dict) -> Iterator[dict]:
         """Process one trace: sample anchors, construct blocks, yield batches."""

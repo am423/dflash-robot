@@ -48,6 +48,9 @@
 
 using namespace dflash27b;
 
+static bool        g_dump_traces = false;
+static std::string g_trace_dir;
+
 struct StepGraph {
     ggml_context *    ctx = nullptr;
     ggml_cgraph *     gf  = nullptr;
@@ -92,7 +95,7 @@ static bool build_step_graph(
     gi.attn_mask      = nullptr;        // n_tokens==1, no mask needed
     gi.n_tokens       = n_tokens;
     gi.kv_start       = kv_start;
-    gi.capture_layers = false;
+    gi.capture_layers = g_dump_traces;  // enable for trace generation
 
     QwenGraphOutputs go = build_target_graph(sg.ctx, sg.gf, w, cache, gi);
     if (!go.logits) return false;
@@ -135,6 +138,10 @@ int main(int argc, char ** argv) {
     for (int i = 5; i < argc; i++) {
         if (std::strncmp(argv[i], "--stream-fd=", 12) == 0) {
             stream_fd = std::atoi(argv[i] + 12);
+        }
+        else if (std::strncmp(argv[i], "--dump-traces=", 14) == 0) {
+            g_dump_traces = true;
+            g_trace_dir = argv[i] + 14;
         }
         // KV cache type flags (mirror llama-cli -ctk / -ctv).
         // Set the env var before resolve_kv_types() reads it inside create_target_cache.
@@ -255,11 +262,30 @@ int main(int argc, char ** argv) {
     // ── Generation loop
     auto t_start = std::chrono::steady_clock::now();
     int gen_start_pos = (int)prompt.size();
+
+    // Trace collection buffers (when --dump-traces is set)
+    const int n_capture = 5;
+    const int feat_dim = n_capture * hidden;
+    std::vector<uint16_t> trace_features;  // bf16 hidden states
+    std::vector<int32_t>  trace_tokens;    // next tokens
+
     for (int g = 0; g < n_gen; g++) {
         int32_t tok = next;
         all_tokens.push_back(tok);
         stream_emit(tok);
         next = run_step(tok, gen_start_pos + g);
+
+        // Collect trace: read hidden states at gen_start_pos + g
+        if (g_dump_traces && cache.target_feat) {
+            const int pos = gen_start_pos + g;
+            const int slot = pos % cache.target_feat_cap;
+            const size_t col_bytes = (size_t)feat_dim * sizeof(uint16_t);
+            const size_t offset = (size_t)slot * cache.target_feat->nb[1];
+            std::vector<uint16_t> feat_col(feat_dim);
+            ggml_backend_tensor_get(cache.target_feat, feat_col.data(), offset, col_bytes);
+            trace_features.insert(trace_features.end(), feat_col.begin(), feat_col.end());
+            trace_tokens.push_back(next);
+        }
     }
     auto t_end = std::chrono::steady_clock::now();
     double secs = std::chrono::duration<double>(t_end - t_start).count();
@@ -275,6 +301,39 @@ int main(int argc, char ** argv) {
 
     write_int32_file(out_path, all_tokens);
     std::printf("[out] wrote %zu tokens to %s\n", all_tokens.size(), out_path);
+
+    // ── Write trace file ────────────────────────────────────────────
+    if (g_dump_traces && !trace_features.empty()) {
+        std::string cmd = "mkdir -p " + g_trace_dir;
+        system(cmd.c_str());
+
+        // Find a unique filename
+        char trace_path[512];
+        int idx = 0;
+        while (true) {
+            std::snprintf(trace_path, sizeof(trace_path),
+                          "%s/trace_%06d.pt", g_trace_dir.c_str(), idx);
+            FILE * f = std::fopen(trace_path, "rb");
+            if (!f) break;
+            std::fclose(f);
+            idx++;
+        }
+
+        FILE * f = std::fopen(trace_path, "wb");
+        if (f) {
+            int32_t n_steps = (int32_t)trace_tokens.size();
+            std::fwrite(&n_steps, sizeof(int32_t), 1, f);
+            std::fwrite(trace_features.data(), sizeof(uint16_t),
+                        trace_features.size(), f);
+            std::fwrite(trace_tokens.data(), sizeof(int32_t),
+                        trace_tokens.size(), f);
+            std::fclose(f);
+            std::printf("[trace] %d positions saved to %s (%zu bytes)\n",
+                        n_steps, trace_path,
+                        sizeof(int32_t) + trace_features.size() * sizeof(uint16_t)
+                        + trace_tokens.size() * sizeof(int32_t));
+        }
+    }
 
     if (sg.alloc) ggml_gallocr_free(sg.alloc);
     if (sg.ctx)   ggml_free(sg.ctx);
