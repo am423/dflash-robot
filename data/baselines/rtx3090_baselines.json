@@ -1,0 +1,47 @@
+{
+  "hardware": "RTX 3090 FE, 24GB VRAM",
+  "host": "AMD Ryzen 5 9600X, 64GB DDR5, Ubuntu 24.04",
+  "build": "llama.cpp b54cb2e3d, CUDA 13.2",
+  "methodology": "-ngl 99, flash attn off, -r 5 (5 warmup + 5 measurement runs)",
+  "models": {
+    "gemma-4-26B-A4B-UD-Q4_K_M": {
+      "size_gb": 16,
+      "arch": "gemma4 (MoE, 128 experts)",
+      "pp512": 3829,
+      "pp512_err": 14,
+      "gen128": 134.8,
+      "gen128_err": 0.27,
+      "gen512": 131.4,
+      "gen512_err": 0.07
+    },
+    "Qwen3.6-35B-A3B-UD-Q4_K_M": {
+      "size_gb": 22,
+      "arch": "qwen35 (MoE, 8 experts)",
+      "pp512": 3119,
+      "pp512_err": 19,
+      "gen128": 146.3,
+      "gen128_err": 0.21,
+      "gen512": 146.6,
+      "gen512_err": 0.32
+    },
+    "gemma-4-31B-it-Q4_K_M": {
+      "size_gb": 17,
+      "arch": "gemma4 (dense)",
+      "pp512": 1265,
+      "gen128": 37.55,
+      "gen128_err": 0.02,
+      "gen512": 36.21,
+      "gen512_err": 0.07
+    },
+    "Qwen3.6-27B-Q4_K_M": {
+      "size_gb": 17,
+      "arch": "qwen35 (hybrid SSM/attention)",
+      "pp512": 1345,
+      "pp512_err": 12,
+      "gen128": 40.8,
+      "gen128_err": 0.04,
+      "gen512": 40.4,
+      "gen512_err": 0.04
+    }
+  }
+}

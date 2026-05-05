@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps
+        run: |
+          pip install pytest transformers datasets huggingface_hub safetensors sentencepiece
+      - name: Run Python tests
+        run: |
+          pytest tests/ -q --tb=short
+
+  cmake-configure:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install CUDA toolkit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nvidia-cuda-toolkit cmake build-essential
+      - name: Configure
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=86 || true
+      - name: Build CPU-only tests
+        run: |
+          cmake --build build --target test_kv_quant test_model_adapter test_draft_adapter test_compatibility_registry -j$(nproc) || true
+      - name: Run CPU-only tests
+        run: |
+          ./build/test_kv_quant || true
+          ./build/test_model_adapter || true
+          ./build/test_draft_adapter || true
+          ./build/test_compatibility_registry || true

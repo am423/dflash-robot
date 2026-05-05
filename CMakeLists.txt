@@ -68,6 +68,9 @@ add_library(dflash27b STATIC
     src/kv_quant.cpp
     src/f16_convert.cu
     src/delta_net_chunked.cpp
+    src/runtime/compatibility_registry.cpp
+    src/adapters/qwen35_adapter.cpp
+    src/adapters/qwen3_dflash_draft_adapter.cpp
 )
 # FlashPrefill custom CUDA kernels need BF16 WMMA (sm_80+). On Turing (sm_75)
 # the drafter uses ggml's flash_attn_ext instead. Guard added after SM check.
@@ -259,4 +262,25 @@ if(DFLASH27B_TESTS)
             target_link_libraries(test_dflash PRIVATE OpenMP::OpenMP_CXX)
         endif()
     endif()
+
+    # ── CPU-only adapter / registry tests ─────────────────────────────
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_model_adapter.cpp")
+        add_executable(test_model_adapter test/test_model_adapter.cpp)
+        target_link_libraries(test_model_adapter PRIVATE dflash27b)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_draft_adapter.cpp")
+        add_executable(test_draft_adapter test/test_draft_adapter.cpp)
+        target_link_libraries(test_draft_adapter PRIVATE dflash27b)
+    endif()
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/test/test_compatibility_registry.cpp")
+        add_executable(test_compatibility_registry test/test_compatibility_registry.cpp)
+        target_link_libraries(test_compatibility_registry PRIVATE dflash27b)
+    endif()
+endif()
+
+# ─── dflash_inspect CLI tool ────────────────────────────────────────
+
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/tools/dflash_inspect.cpp")
+    add_executable(dflash_inspect tools/dflash_inspect.cpp)
+    target_link_libraries(dflash_inspect PRIVATE dflash27b ggml ggml-base)
 endif()
