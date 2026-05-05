@@ -1,0 +1,2 @@
+target=/home/am/dflash-gguf/dflash-robot/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+draft=/home/am/.cache/huggingface/hub/models--z-lab--Qwen3.6-35B-A3B-DFlash/snapshots/42d3b34d588423cdae7ba8f53a8cf7789346a719/model.safetensors

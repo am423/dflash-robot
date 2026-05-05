@@ -114,6 +114,10 @@ struct TargetWeights {
     ggml_backend_t        backend = nullptr;
     ggml_backend_buffer_t buf     = nullptr;
 
+    // GGUF architecture string, e.g. "qwen35" or "qwen35moe". Used by the
+    // graph-module dispatcher so executable paths do not bypass the registry.
+    std::string           arch;
+
     // CPU-side embedding table (zero GPU cost).
     CpuEmbedder           embedder;
 
@@ -445,10 +449,20 @@ struct QwenGraphOutputs {
 };
 
 QwenGraphOutputs build_qwen35_graph(
-    ggml_context *         ctx,
-    ggml_cgraph *          gf,
-    const TargetWeights &  w,
-    TargetCache &          cache,
+    ggml_context * ctx,
+    ggml_cgraph * gf,
+    const TargetWeights & w,
+    TargetCache & cache,
+    const QwenGraphInputs & in);
+
+// Dispatch through the registered TargetGraphModule for w.arch. This is the
+// preferred entry point for executables/tools so qwen35moe/Qwen3.6-35B uses its
+// graph module instead of bypassing the registry.
+QwenGraphOutputs build_target_graph(
+    ggml_context * ctx,
+    ggml_cgraph * gf,
+    const TargetWeights & w,
+    TargetCache & cache,
     const QwenGraphInputs & in);
 
 // Build a single-layer forward graph. Mirrors build_qwen35_graph but processes

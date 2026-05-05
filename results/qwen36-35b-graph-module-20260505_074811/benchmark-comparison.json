@@ -1,0 +1,58 @@
+{
+  "model": "Qwen3.6-35B-A3B-UD-Q4_K_M",
+  "target": "/home/am/dflash-gguf/dflash-robot/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+  "draft": "/home/am/.cache/huggingface/hub/models--z-lab--Qwen3.6-35B-A3B-DFlash/snapshots/42d3b34d588423cdae7ba8f53a8cf7789346a719/model.safetensors",
+  "framework": "dflash-robot graph-module dispatcher",
+  "base_commit": "356dd2e",
+  "working_tree_status": "M CMakeLists.txt\n M src/gguf_target_loader.cpp\n M src/internal.h\n M test/smoke_target_forward.cpp\n M test/test_dflash.cpp\n M test/test_generate.cpp\n?? results/qwen36-35b-bestpath/\n?? results/qwen36-35b-graph-module-20260505_074811/\n?? src/graph/target_graph_dispatch.cpp",
+  "prompt": "Here is a Python function to reverse a linked list:\n\n",
+  "prompt_tokens": 12,
+  "gen_tokens": 64,
+  "graph_module": {
+    "arch": "qwen35moe",
+    "module": "qwen35moe",
+    "entrypoint": "build_target_graph -> TargetGraphModule"
+  },
+  "ar": {
+    "tok_s": 103.16,
+    "total_s": 0.62
+  },
+  "dflash": {
+    "tok_s": 98.45,
+    "total_s": 0.65,
+    "steps": 16,
+    "accepted": 64,
+    "total_proposed": 256,
+    "acceptance_pct": 25.0,
+    "commit_per_step": 4.0,
+    "speedup_vs_ar": 0.954,
+    "timing_ms": {
+      "draft_build": 0.17,
+      "draft_copyfeat": 0.31,
+      "draft_set": 0.01,
+      "draft_compute": 6.32,
+      "draft_bridge": 0.0,
+      "draft_logits": 2.89,
+      "snapshot_ssm": 0.0,
+      "verify_build": 1.01,
+      "verify_set": 0.82,
+      "verify_compute": 28.87,
+      "verify_logits": 0.0,
+      "accept": 0.02,
+      "restore_ssm": 0.0,
+      "replay_build": 0.0,
+      "replay_set": 0.0,
+      "replay_compute": 0.0,
+      "replay_logits": 0.0,
+      "mirror_sync": 0.0,
+      "step_sum": 40.43
+    }
+  },
+  "validation": {
+    "build": "passed",
+    "smoke_load_target": "passed",
+    "smoke_target_forward": "passed",
+    "compatibility_registry": "17/17 passed"
+  },
+  "notes": "Qwen3.6-35B-A3B now routes benchmark/smoke executables through build_target_graph and the qwen35moe TargetGraphModule. Same-harness DFlash is slightly slower than AR on this prompt; MoE verify remains the limiting cost."
+}

@@ -338,6 +338,7 @@ bool load_target_gguf(const std::string & path,
 
     out.ctx     = meta_ctx;
     out.backend = backend;
+    out.arch    = arch_prefix;
     out.n_layer = (int)n_layer;
     out.n_embd  = (int)n_embd;
     out.n_ff    = (int)n_ff;

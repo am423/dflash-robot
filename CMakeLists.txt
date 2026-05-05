@@ -73,6 +73,7 @@ add_library(dflash27b STATIC
     src/adapters/qwen35_adapter.cpp
     src/adapters/qwen3_dflash_draft_adapter.cpp
     src/graph/model_graph_registry.cpp
+    src/graph/target_graph_dispatch.cpp
     src/graph/qwen35_dense_module.cpp
     src/graph/qwen35_moe_module.cpp
 )

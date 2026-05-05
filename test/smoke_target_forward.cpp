@@ -86,8 +86,8 @@ int main(int argc, char ** argv) {
     // Pre-sized graph: 64 layers × ~60 nodes + overhead = ~4096
     ggml_cgraph * gf = ggml_new_graph_custom(gctx, 8192, false);
 
-    QwenGraphOutputs go = build_qwen35_graph(gctx, gf, w, cache, gi);
-    if (!go.logits) { std::fprintf(stderr, "build_qwen35_graph returned null\n"); return 1; }
+    QwenGraphOutputs go = build_target_graph(gctx, gf, w, cache, gi);
+    if (!go.logits) { std::fprintf(stderr, "build_target_graph returned null\n"); return 1; }
     ggml_set_output(go.logits);
     ggml_build_forward_expand(gf, go.logits);
     std::printf("[graph] nodes=%d\n", ggml_graph_n_nodes(gf));
