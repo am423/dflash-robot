@@ -583,7 +583,8 @@ static bool draft_feature_mirror_init(DraftFeatureMirror & mirror,
                                       ggml_backend_t backend,
                                       int device,
                                       int target_device,
-                                      int cap) {
+                                      int cap,
+                                      int target_hidden) {
     draft_feature_mirror_free(mirror);
     if (cap <= 0) return false;
     mirror.device = device;
@@ -596,7 +597,7 @@ static bool draft_feature_mirror_init(DraftFeatureMirror & mirror,
     mirror.ctx = ggml_init(ip);
     if (!mirror.ctx) return false;
 
-    const int fc_in = DFLASH27B_DRAFT_N_TARGET_LAYERS * DFLASH27B_TARGET_HIDDEN;
+    const int fc_in = DFLASH27B_DRAFT_N_TARGET_LAYERS * target_hidden;
     mirror.target_feat = ggml_new_tensor_2d(mirror.ctx, GGML_TYPE_F32, fc_in, cap);
     ggml_set_name(mirror.target_feat, "draft_target_feat_mirror");
     mirror.buf = ggml_backend_alloc_ctx_tensors(mirror.ctx, backend);
@@ -634,7 +635,7 @@ static bool draft_feature_mirror_sync_range(const TargetCache & cache,
     if (n_tokens <= 0) return true;
     if (n_tokens > mirror.cap) return false;
 
-    const int fc_in = DFLASH27B_DRAFT_N_TARGET_LAYERS * DFLASH27B_TARGET_HIDDEN;
+    const int fc_in = (int)cache.target_feat->ne[0];
     const int src_cap = cache.target_feat_cap;
     const size_t src_stride = cache.target_feat->nb[1];
     const size_t dst_stride = mirror.target_feat->nb[1];
@@ -739,7 +740,7 @@ static bool build_layer_step(
     sg.ctx = ggml_init(ip);
     if (!sg.ctx) return false;
 
-    const int hidden = DFLASH27B_TARGET_HIDDEN;
+    const int hidden = w.n_embd;
 
     sg.inp_embed = ggml_view_2d(sg.ctx, act_in,
         hidden, n_tokens,
@@ -829,7 +830,7 @@ static bool build_target_step(
     sg.ctx = ggml_init(ip);
     if (!sg.ctx) return false;
 
-    const int hidden = DFLASH27B_TARGET_HIDDEN;
+    const int hidden = w.n_embd;
     sg.inp_embed = ggml_new_tensor_3d(sg.ctx, GGML_TYPE_F32, hidden, n_tokens, 1);
     ggml_set_name(sg.inp_embed, "inp_embed");
     ggml_set_input(sg.inp_embed);
@@ -902,7 +903,7 @@ static bool build_target_step_tree(
     sg.ctx = ggml_init(ip);
     if (!sg.ctx) return false;
 
-    const int hidden = DFLASH27B_TARGET_HIDDEN;
+    const int hidden = w.n_embd;
     sg.inp_embed = ggml_new_tensor_3d(sg.ctx, GGML_TYPE_F32, hidden, n_tokens, 1);
     ggml_set_name(sg.inp_embed, "inp_embed");
     ggml_set_input(sg.inp_embed);
@@ -970,7 +971,7 @@ static bool build_draft_step(
     sg.ctx = ggml_init(ip);
     if (!sg.ctx) return false;
 
-    const int hidden = DFLASH27B_TARGET_HIDDEN;
+    const int hidden = tw ? tw->n_embd : dw.n_embd;
     const int q_len  = DFLASH27B_DRAFT_BLOCK_SIZE;
     const int fc_in  = DFLASH27B_DRAFT_N_TARGET_LAYERS * hidden;
 
@@ -1049,7 +1050,7 @@ static bool build_lm_head_projection_step(
     sg.ctx = ggml_init(ip);
     if (!sg.ctx) return false;
 
-    const int hidden = DFLASH27B_TARGET_HIDDEN;
+    const int hidden = w.n_embd;
     sg.hidden_input = ggml_new_tensor_3d(sg.ctx, GGML_TYPE_F32, hidden, n_tokens, 1);
     ggml_set_name(sg.hidden_input, "draft_hidden_for_lm_head");
     ggml_set_input(sg.hidden_input);
@@ -1280,7 +1281,7 @@ int main(int argc, char ** argv) {
 
     // ── Profile mode: microbench target forward at varying N ───────────
     if (profile_scaling) {
-        const int hidden_p = DFLASH27B_TARGET_HIDDEN;
+        const int hidden_p = w.n_embd;
         StepGraph psg;
         const int n_values[] = { 1, 4, 8, 12, 16, 20, 24, 32, 48, 64, 96, 128 };
         std::printf("[profile] target forward ms at varying N (kv_start=0, no capture)\n");
@@ -1387,8 +1388,8 @@ int main(int argc, char ** argv) {
         }
 
         // ── Tests 2 & 3: GPU regression tests ───────────────────────────
-        const int hidden_t = DFLASH27B_TARGET_HIDDEN;
-        const int vocab_t  = DFLASH27B_TARGET_VOCAB;
+        const int hidden_t = w.n_embd;
+        const int vocab_t  = (int)w.output->ne[1];
         auto do_prefill = [&](StepGraph & psg, int n_tokens) -> int32_t {
             const int pf_ub = 384;
             int32_t lt = -1;
@@ -1537,8 +1538,8 @@ int main(int argc, char ** argv) {
     }
 
     const int q_len  = DFLASH27B_DRAFT_BLOCK_SIZE;
-    const int hidden = DFLASH27B_TARGET_HIDDEN;
-    const int vocab  = DFLASH27B_TARGET_VOCAB;
+    const int hidden = w.n_embd;
+    const int vocab  = (int)w.output->ne[1];
     const int mask_tok = DFLASH27B_DRAFT_MASK_TOKEN_ID;
 
     if (daemon_mode) {
@@ -2256,7 +2257,8 @@ int main(int argc, char ** argv) {
         if (!feature_mirror.target_feat || feature_mirror.cap != cache.target_feat_cap) {
             if (!draft_feature_mirror_init(feature_mirror, draft_backend,
                                            draft_gpu, target_gpu,
-                                           cache.target_feat_cap)) {
+                                           cache.target_feat_cap,
+                                           w.n_embd)) {
                 std::fprintf(stderr, "draft feature mirror init failed\n");
                 return 1;
             }

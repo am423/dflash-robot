@@ -2,11 +2,12 @@
 
 Generated: 2026-05-04
 
-## Supported (dflash-robot v0.1)
+## Supported (dflash-robot v0.2)
 
-| Target Model | Draft Model | Target Arch | dflash-robot Status | Post-DFlash tok/s | Speedup vs AR |
+| Target Model | Draft Model | Target Arch | dflash-robot Status | DFlash tok/s | Notes |
 |---|---|---|---|---|---|
-| Qwen3.6-27B-Q4_K_M | z-lab/Qwen3.5-27B-DFlash (cross-gen) | qwen35 | measured | 90.90 mean | 2.41x |
+| Qwen3.6-27B-Q4_K_M | z-lab/Qwen3.5-27B-DFlash (cross-gen) | qwen35 | measured v0.1 | 90.90 mean | 2.41x speedup |
+| Qwen3.6-35B-A3B-UD-Q4_K_M | z-lab/Qwen3.6-35B-A3B-DFlash | qwen35moe | measured v0.2 | 28.29 smoke | 64-token smoke only; full benchmark pending |
 
 ## Known DFlash Drafts (z-lab)
 

@@ -8,16 +8,17 @@ dflash-robot is based on [Luce DFlash](https://github.com/Luce-Org/lucebox-hub/t
 
 ## Current Status
 
-v0.1.0 — Qwen3.6-27B on RTX 3090:
+v0.2.0 — Qwen3.6-27B + Qwen3.6-35B-A3B on RTX 3090:
 
-| Task | AR tok/s | DFlash tok/s | Speedup |
-|---|---:|---:|---:|
-| HumanEval | 37.54 | 108.42 | 2.89x |
-| GSM8K | 37.79 | 72.61 | 1.92x |
-| Math500 | 37.86 | 91.67 | 2.42x |
-| Mean | 37.73 | 90.90 | 2.41x |
+| Model | AR tok/s | DFlash tok/s | Speedup | Status |
+|---|---:|---:|---:|---|
+| Qwen3.6-27B | 37.73 | 90.90 | 2.41x | v0.1.0, cross-gen draft |
+| Qwen3.6-35B-A3B | 106.11 | 28.29 | 0.27x | v0.2.0, matched draft, MoE overhead |
 
-Draft: z-lab/Qwen3.5-27B-DFlash (cross-generation mismatch with Qwen3.6-27B target). Matched draft would improve speedup.
+Qwen3.6-35B-A3B DFlash produces correct output but MoE verification overhead
+dominates on RTX 3090 (31.5ms verify per step vs 3.9ms draft compute).
+Future optimization: reduce MoE expert count per verify step or use draft
+quantization to lower VRAM pressure.
 
 ## Requirements
 

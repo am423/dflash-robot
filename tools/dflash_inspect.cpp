@@ -11,6 +11,7 @@
 #include "dflash_robot/compatibility_registry.h"
 #include "dflash_robot/adapters/qwen35_adapter.h"
 #include "dflash_robot/adapters/qwen3_dflash_draft_adapter.h"
+#include "graph/model_graph_registry.h"
 
 using namespace dflash_robot;
 
@@ -166,6 +167,10 @@ int main(int argc, char** argv) {
     // Classify
     CompatibilityResult result = classify_model(target, draft_caps_ptr);
 
+    // Get graph module info
+    dflash27b::init_graph_registry();
+    dflash27b::GraphModuleInfo gminfo = dflash27b::get_graph_module_info(target.arch);
+
     // Build next_action
     std::string next_action = infer_next_action(result.status, target.arch);
 
@@ -181,7 +186,12 @@ int main(int argc, char** argv) {
         printf("  },\n");
         printf("  \"compatibility_status\": \"%s\",\n", result.status.c_str());
         printf("  \"reason\": \"%s\",\n", result.reason.c_str());
-        printf("  \"next_action\": \"%s\"\n", next_action.c_str());
+        printf("  \"next_action\": \"%s\",\n", next_action.c_str());
+        printf("  \"graph_module\": {\n");
+        printf("    \"name\": \"%s\",\n", gminfo.module_name.c_str());
+        printf("    \"available\": %s,\n", gminfo.available ? "true" : "false");
+        printf("    \"reason\": \"%s\"\n", gminfo.reason.c_str());
+        printf("  }\n");
         printf("}\n");
     } else {
         printf("Target: %s\n", target_path);

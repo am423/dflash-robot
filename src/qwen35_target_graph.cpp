@@ -1328,8 +1328,10 @@ QwenGraphOutputs build_qwen35_graph(
         ggml_tensor * ffn_residual = cur;
         ggml_tensor * post = rms_norm_mul(ctx, cur, L.attn_post_norm, eps);
 
-        // SwiGLU FFN
-        ggml_tensor * ffn = build_swiglu_ffn(ctx, post, L);
+        // MoE FFN (qwen35moe) or dense SwiGLU FFN (qwen35)
+        ggml_tensor * ffn = L.ffn_gate_inp
+            ? build_moe_ffn(ctx, gf, w, L, post)
+            : build_swiglu_ffn(ctx, post, L);
         cur = ggml_add(ctx, ffn, ffn_residual);
 
         // ── DFlash layer feature capture ──

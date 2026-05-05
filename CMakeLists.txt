@@ -72,6 +72,9 @@ add_library(dflash27b STATIC
     src/runtime/compatibility_registry.cpp
     src/adapters/qwen35_adapter.cpp
     src/adapters/qwen3_dflash_draft_adapter.cpp
+    src/graph/model_graph_registry.cpp
+    src/graph/qwen35_dense_module.cpp
+    src/graph/qwen35_moe_module.cpp
 )
 # FlashPrefill custom CUDA kernels need BF16 WMMA (sm_80+). On Turing (sm_75)
 # the drafter uses ggml's flash_attn_ext instead. Guard added after SM check.
