@@ -716,12 +716,19 @@ static ggml_tensor * build_moe_ffn(
     }
     moe_out = ggml_cont(ctx, moe_out);  // [n_embd, n_tokens]
 
-    // ── Shared expert (always active)
+    // ── Shared expert (always active, with per-token sigmoid gate)
     if (L.ffn_gate_shexp && L.ffn_up_shexp && L.ffn_down_shexp) {
         ggml_tensor * sh_gate = ggml_mul_mat(ctx, L.ffn_gate_shexp, cur);  // [n_ff_shared, n_tokens]
         ggml_tensor * sh_up   = ggml_mul_mat(ctx, L.ffn_up_shexp,   cur);
         ggml_tensor * sh_gu   = ggml_swiglu_split(ctx, sh_gate, sh_up);
         ggml_tensor * sh_down = ggml_mul_mat(ctx, L.ffn_down_shexp, sh_gu);  // [n_embd, n_tokens]
+
+        // CRITICAL: apply per-token sigmoid gate (qwen35moe specific)
+        if (L.ffn_gate_inp_shexp) {
+            ggml_tensor * shared_gate = ggml_mul_mat(ctx, L.ffn_gate_inp_shexp, cur);  // [1, n_tokens]
+            shared_gate = ggml_sigmoid(ctx, shared_gate);
+            sh_down = ggml_mul(ctx, sh_down, shared_gate);
+        }
         moe_out = ggml_add(ctx, moe_out, sh_down);
     }
 

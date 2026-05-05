@@ -372,10 +372,10 @@ bool load_target_gguf(const std::string & path,
     }
 
     // Compute capture layer IDs: evenly spaced through the target layers.
-    // step = (n_layer - 2) / (N - 1), ids[k] = 1 + k * step.
+    // step = (n_layer - 3) / (N - 1), ids[k] = 1 + k * step.
     {
         const int N = g_dflash_config.draft_n_target_layers;
-        const int step = ((int)n_layer - 2) / (N - 1);
+        const int step = ((int)n_layer - 3) / (N - 1);
         for (int k = 0; k < N; k++) out.capture_layer_ids[k] = 1 + k * step;
     }
 
@@ -417,6 +417,7 @@ bool load_target_gguf(const std::string & path,
         L.ffn_gate_shexp = fnd("ffn_gate_shexp.weight");
         L.ffn_up_shexp   = fnd("ffn_up_shexp.weight");
         L.ffn_down_shexp = fnd("ffn_down_shexp.weight");
+        L.ffn_gate_inp_shexp = fnd("ffn_gate_inp_shexp.weight");
 
         // Validate: every layer must have attn_norm + post_attention_norm
         // and EITHER dense FFN (w_gate/w_up/w_down) OR MoE FFN (ffn_gate_inp + exps)

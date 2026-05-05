@@ -58,6 +58,7 @@ struct TargetLayer {
     ggml_tensor * ffn_gate_exps   = nullptr;  // [hidden, n_ff, n_expert]   expert gate weights (3D)
     ggml_tensor * ffn_up_exps     = nullptr;  // [hidden, n_ff, n_expert]   expert up weights (3D)
     ggml_tensor * ffn_down_exps   = nullptr;  // [n_ff, hidden, n_expert]   expert down weights (3D)
+    ggml_tensor * ffn_gate_inp_shexp = nullptr; // [hidden]                   shared expert per-token sigmoid gate
     ggml_tensor * ffn_gate_shexp  = nullptr;  // [hidden, n_ff_shared]      shared expert gate
     ggml_tensor * ffn_up_shexp    = nullptr;  // [hidden, n_ff_shared]      shared expert up
     ggml_tensor * ffn_down_shexp  = nullptr;  // [n_ff_shared, hidden]      shared expert down
