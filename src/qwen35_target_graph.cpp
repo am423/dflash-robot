@@ -687,6 +687,19 @@ static ggml_tensor * build_moe_ffn(
     // weights: [1, n_expert_used, n_tokens]
     ggml_tensor * weights = ggml_get_rows(ctx, probs_3d, selected_experts);
 
+    // ── Renormalize expert weights to sum to 1.0 per token
+    //    (matches llama.cpp's build_moe_ffn with norm_w=true for qwen35moe).
+    //    Without this, top-8 softmax weights sum to ~0.3-0.5, diluting
+    //    the MoE output 2-3x relative to residual + shared expert.
+    {
+        weights = ggml_reshape_2d(ctx, weights, n_expert_used, n_tokens);
+        ggml_tensor * weights_sum = ggml_sum_rows(ctx, weights);  // [1, n_tokens]
+        // Clamp to avoid division by zero (matches llama.cpp)
+        weights_sum = ggml_clamp(ctx, weights_sum, 6.103515625e-5f, INFINITY);
+        weights = ggml_div(ctx, weights, weights_sum);  // [n_expert_used, n_tokens]
+        weights = ggml_reshape_3d(ctx, weights, 1, n_expert_used, n_tokens);
+    }
+
     // ── Reshape cur to 3D for mul_mat_id: [n_embd, 1, n_tokens]
     ggml_tensor * cur_3d = ggml_reshape_3d(ctx, cur, n_embd, 1, n_tokens);
 
