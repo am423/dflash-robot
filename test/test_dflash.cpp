@@ -1111,6 +1111,8 @@ int main(int argc, char ** argv) {
     int   ddtree_budget = 64;
     float ddtree_temp   = 1.0f;   // softmax temperature for top-K extract
     bool  ddtree_chain_seed = true;  // pre-seed full chain (vs paper's pure best-first)
+    float ddtree_guard_threshold = 0.8f;  // quality guard: revert to chain if DDTree path confidence < chain * threshold
+    bool  ddtree_temp_explicit = false;
     bool  profile_scaling = false;  // microbench: time target forward at varying N
     bool  test_window_mode = false;
     bool  draft_feature_mirror = false;
@@ -1136,9 +1138,14 @@ int main(int argc, char ** argv) {
         else if (std::strncmp(argv[i], "--ddtree-temp=", 14) == 0) {
             ddtree_temp = (float)std::atof(argv[i] + 14);
             if (ddtree_temp <= 0.0f) ddtree_temp = 1.0f;
+            ddtree_temp_explicit = true;
         }
         else if (std::strcmp(argv[i], "--ddtree-no-chain-seed") == 0) {
             ddtree_chain_seed = false;
+        }
+        else if (std::strncmp(argv[i], "--ddtree-guard-threshold=", 25) == 0) {
+            ddtree_guard_threshold = (float)std::atof(argv[i] + 25);
+            if (ddtree_guard_threshold <= 0.0f) ddtree_guard_threshold = 0.8f;
         }
         else if (std::strcmp(argv[i], "--test-window") == 0)      { test_window_mode = true; }
         else if (std::strcmp(argv[i], "--draft-feature-mirror") == 0) {
@@ -1210,9 +1217,9 @@ int main(int argc, char ** argv) {
         std::fprintf(stderr, "--fast-rollback and --seq-verify are mutually exclusive\n");
         return 2;
     }
-    std::printf("[cfg] seq_verify=%d fast_rollback=%d ddtree=%d budget=%d temp=%.2f chain_seed=%d fa_window=%d draft_feature_mirror=%d target_gpu=%d draft_gpu=%d\n",
+    std::printf("[cfg] seq_verify=%d fast_rollback=%d ddtree=%d budget=%d temp=%.2f chain_seed=%d guard=%.2f fa_window=%d draft_feature_mirror=%d target_gpu=%d draft_gpu=%d\n",
                 (int)seq_verify, (int)fast_rollback, (int)ddtree_mode,
-                ddtree_budget, ddtree_temp, (int)ddtree_chain_seed, g_fa_window,
+                ddtree_budget, ddtree_temp, (int)ddtree_chain_seed, ddtree_guard_threshold, g_fa_window,
                 (int)draft_feature_mirror, target_gpu, draft_gpu);
 
     int cuda_device_count = 0;
@@ -1261,6 +1268,25 @@ int main(int argc, char ** argv) {
         }
     }
     std::printf("[draft]  loaded\n");
+
+    // Auto-select DDTree temperature based on draft model quantization.
+    // Q4_K_M quantization flattens the softmax, so sharpen (T<1) to restore
+    // discrimination between top-1 and lower ranks in the best-first heap.
+    if (!ddtree_temp_explicit && ddtree_mode) {
+        // Check draft weight type from the first layer's wq tensor
+        ggml_type draft_type = GGML_TYPE_F32;
+        if (!dw.layers.empty() && dw.layers[0].wq) {
+            draft_type = dw.layers[0].wq->type;
+        }
+        if (draft_type == GGML_TYPE_Q4_K || draft_type == GGML_TYPE_Q4_0 ||
+            draft_type == GGML_TYPE_Q4_1 || draft_type == GGML_TYPE_IQ4_NL) {
+            ddtree_temp = 0.7f;
+            std::printf("[draft] auto ddtree_temp=%.2f (Q4 quantized draft detected)\n", ddtree_temp);
+        } else if (draft_type == GGML_TYPE_Q8_0 || draft_type == GGML_TYPE_Q8_K) {
+            ddtree_temp = 0.85f;
+            std::printf("[draft] auto ddtree_temp=%.2f (Q8 quantized draft detected)\n", ddtree_temp);
+        }
+    }
 
     const int max_ctx = g_max_ctx_override > 0 ? g_max_ctx_override : 4096;
     // Size the ssm_intermediate / conv_input_cache buffers to cover whichever
@@ -2535,6 +2561,51 @@ int main(int argc, char ** argv) {
                 L, ddtree_K, ddtree_budget,
                 ddtree_chain_seed);
 
+            // ── Quality guard: compare DDTree path confidence vs greedy chain ──
+            // If the DDTree's best path has significantly lower average log-prob
+            // than the greedy chain (top-1 at each depth), the tree search may
+            // have found a miscalibrated path that produces garbage output.
+            // Fall back to chain mode for this step.
+            bool ddtree_guard_triggered = false;
+            if (ddtree_guard_threshold > 0.0f && tree.n_nodes > 0) {
+                // Compute mean log-prob along greedy chain (top-1 at each depth)
+                float chain_sum = 0.0f;
+                for (int d = 0; d < L; d++) {
+                    chain_sum += ddtree_top_log_probs[(size_t)d * ddtree_K + 0];
+                }
+                const float chain_mean = chain_sum / std::max(1, L);
+
+                // Compute mean log-prob along DDTree's best path (deepest accepted chain)
+                // Walk from root to deepest leaf via top-1 children
+                float tree_sum = 0.0f;
+                int tree_depth = 0;
+                int cur = 0;  // root
+                while (true) {
+                    auto it = tree.child_maps[cur].find(ddtree_top_token_ids[(size_t)tree_depth * ddtree_K + 0]);
+                    if (it == tree.child_maps[cur].end() || tree_depth >= L) break;
+                    cur = it->second;
+                    tree_depth++;
+                    // Find this node's log-prob
+                    for (int k = 0; k < ddtree_K; k++) {
+                        if (ddtree_top_token_ids[(size_t)(tree_depth - 1) * ddtree_K + k] == tree.token_ids[cur - 1]) {
+                            tree_sum += ddtree_top_log_probs[(size_t)(tree_depth - 1) * ddtree_K + k];
+                            break;
+                        }
+                    }
+                }
+                const float tree_mean = (tree_depth > 0) ? tree_sum / tree_depth : chain_mean;
+
+                if (tree_mean < chain_mean * ddtree_guard_threshold) {
+                    std::printf("[ddtree-guard] step %d: tree_mean=%.4f chain_mean=%.4f ratio=%.2f < threshold %.2f — falling back to chain mode\n",
+                                n_draft_steps, tree_mean, chain_mean, tree_mean / std::max(1e-9f, std::abs(chain_mean)), ddtree_guard_threshold);
+                    ddtree_guard_triggered = true;
+                }
+            }
+            if (ddtree_guard_triggered) {
+                // Skip DDTree verify, fall through to chain mode below
+                goto chain_mode_verify;
+            }
+
             const int N = 1 + tree.n_nodes;  // flat size including root
 
             if (!build_target_step_tree(sg, w, cache, backend,
@@ -2609,6 +2680,56 @@ int main(int argc, char ** argv) {
             for (int x : accepted) {
                 if (x > L) { walked_sibling = true; break; }
             }
+
+            // Quality guard: when the tree walk takes a sibling branch,
+            // truncate to the chain spine only. Sibling branches can produce
+            // corrupted output when the draft model is miscalibrated (common
+            // with quantized safetensors drafts). The tree verification still
+            // benefits the chain by exploring alternatives, but we only commit
+            // tokens along the greedy chain path.
+            if (walked_sibling && ddtree_guard_threshold > 0.0f) {
+                std::vector<int> truncated;
+                for (int x : accepted) {
+                    if (x > L) break;  // stop at first sibling
+                    truncated.push_back(x);
+                }
+                if ((int)truncated.size() < accept_depth) {
+                    std::printf("[ddtree-guard] step %d: sibling walk detected (accept=%d), truncating to chain spine (%d nodes)\n",
+                                n_draft_steps, accept_depth, (int)truncated.size());
+                    accepted = std::move(truncated);
+                    // Recompute next_token from the new deepest accepted node
+                    const int deepest = accepted.back();
+                    next_token = posterior[deepest];
+                }
+            }
+
+            // Per-token confidence guard: check the draft model's top-1 log-prob
+            // at each depth along the accepted path. If any position has very low
+            // confidence (log-prob below -4.0, meaning <2% probability), truncate
+            // the accepted path at that point. This prevents the draft model from
+            // committing low-confidence tokens that lead to corrupted output.
+            if (ddtree_guard_threshold > 0.0f && (int)accepted.size() > 1) {
+                const float min_log_prob = -4.0f;  // ~2% probability threshold
+                std::vector<int> truncated_conf;
+                truncated_conf.push_back(accepted[0]);  // always include root
+                for (int ai = 1; ai < (int)accepted.size(); ai++) {
+                    const int depth = (ai == 0) ? 0 : tree.depths[accepted[ai] - 1];
+                    if (depth < 1 || depth > L) break;
+                    const float top1_logp = ddtree_top_log_probs[(size_t)(depth - 1) * ddtree_K + 0];
+                    if (top1_logp < min_log_prob) {
+                        std::printf("[ddtree-guard] step %d: low confidence at depth %d (%.4f < %.4f), truncating path to %d tokens\n",
+                                    n_draft_steps, depth, top1_logp, min_log_prob, (int)truncated_conf.size());
+                        break;
+                    }
+                    truncated_conf.push_back(accepted[ai]);
+                }
+                if ((int)truncated_conf.size() < (int)accepted.size()) {
+                    accepted = std::move(truncated_conf);
+                    const int deepest = accepted.back();
+                    next_token = posterior[deepest];
+                }
+            }
+
             if (walked_sibling || n_draft_steps < 2) {
                 std::printf("[dbg sib step %d] N=%d accept=%d walked_sib=%d\n",
                             n_draft_steps, N, accept_depth, walked_sibling ? 1 : 0);
@@ -2837,6 +2958,7 @@ int main(int argc, char ** argv) {
             continue;  // skip the rest of the verify/commit logic for this iter
         }
 
+        chain_mode_verify:
         if (!seq_verify) {
             const int verify_fa_window = g_fa_window;
             if (!build_target_step(sg, w, cache, backend,

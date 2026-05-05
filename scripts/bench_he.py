@@ -234,6 +234,7 @@ def run_test_dflash(prompt_path: Path, n_gen: int, fast_rollback: bool,
                     ddtree_budget: int | None = None,
                     ddtree_temp: float | None = None,
                     ddtree_no_chain_seed: bool = False,
+                    ddtree_guard_threshold: float | None = None,
                     extra_args: list[str] | None = None,
                     extra_env: dict[str, str] | None = None) -> dict:
     out_bin = TMPDIR / "he_bench_out.bin"
@@ -249,6 +250,8 @@ def run_test_dflash(prompt_path: Path, n_gen: int, fast_rollback: bool,
         cmd.append(f"--ddtree-temp={ddtree_temp}")
     if ddtree_no_chain_seed:
         cmd.append("--ddtree-no-chain-seed")
+    if ddtree_guard_threshold is not None:
+        cmd.append(f"--ddtree-guard-threshold={ddtree_guard_threshold}")
     if extra_args:
         cmd.extend(extra_args)
     env = os.environ.copy()
@@ -286,14 +289,22 @@ def main():
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--n-gen", type=int, default=128)
-    ap.add_argument("--mode", choices=["fast", "batched"], default="fast")
+    ap.add_argument("--mode", choices=["fast", "batched", "ddtree", "auto"], default="fast",
+                    help="'fast' = --fast-rollback, 'batched' = no fast-rollback, "
+                         "'ddtree' = --ddtree with --ddtree-budget, 'auto' = run both fast and ddtree")
     ap.add_argument("--skip-tokenize", action="store_true")
+    ap.add_argument("--target", default=None,
+                    help="Path to target GGUF (overrides DFLASH_TARGET env var)")
+    ap.add_argument("--draft", default=None,
+                    help="Path to draft safetensors/GGUF (overrides DFLASH_DRAFT env var)")
     ap.add_argument("--ddtree-budget", type=int, default=None,
-                    help="Enable DDTree mode with this node budget (e.g. 15, 32, 64)")
+                    help="Enable DDTree mode with this node budget (e.g. 8, 15, 32, 64)")
     ap.add_argument("--ddtree-temp", type=float, default=None,
                     help="Sharpen draft logits with this temperature (T<1 widens top-1/top-2 gap)")
     ap.add_argument("--ddtree-no-chain-seed", action="store_true",
                     help="Use paper's pure best-first (no chain pre-seed)")
+    ap.add_argument("--ddtree-guard-threshold", type=float, default=None,
+                    help="Quality guard threshold: revert to chain if DDTree path confidence < chain * threshold")
     ap.add_argument("--draft-feature-mirror", action="store_true",
                     help="Use the draft-side target feature mirror path")
     ap.add_argument("--target-gpu", type=int, default=None,
@@ -309,6 +320,14 @@ def main():
                          "Qwen3.6 or other variants, e.g. "
                          "--target-tokenizer Qwen/Qwen3.6-27B")
     args = ap.parse_args()
+
+    # CLI --target/--draft override env vars
+    if args.target:
+        global TARGET
+        TARGET = args.target
+    if args.draft:
+        global DRAFT
+        DRAFT = args.draft
 
     # Tokenized prompts are cached at TMPDIR/he_prompt_<slug>_NN.bin so
     # different --target-tokenizer values never collide. Without the slug,
@@ -356,42 +375,64 @@ def main():
     if args.cuda_visible_devices:
         extra_env["CUDA_VISIBLE_DEVICES"] = args.cuda_visible_devices
 
-    results = []
-    for i, (name, _) in enumerate(PROMPTS):
-        path = _prompt_path(i, tok_slug)
-        try:
-            r = run_test_dflash(path, args.n_gen,
-                                fast_rollback=(args.mode == "fast"),
-                                ddtree_budget=args.ddtree_budget,
-                                ddtree_temp=args.ddtree_temp,
-                                ddtree_no_chain_seed=args.ddtree_no_chain_seed,
-                                extra_args=extra_args,
-                                extra_env=extra_env)
-        except Exception as e:
-            print(f"  [{i:02d}] {name:26s}  FAILED: {e}")
+    # Determine fast_rollback and ddtree settings from mode
+    fast_rollback = args.mode in ("fast", "ddtree", "auto")
+    ddtree_budget_actual = args.ddtree_budget
+    if args.mode == "ddtree" and ddtree_budget_actual is None:
+        ddtree_budget_actual = 8  # default budget for ddtree mode
+    if args.mode == "auto" and ddtree_budget_actual is None:
+        ddtree_budget_actual = 8
+
+    # In auto mode, run both fast and ddtree and compare
+    modes_to_run = []
+    if args.mode == "auto":
+        modes_to_run = [("fast", True, None), ("ddtree", True, ddtree_budget_actual)]
+    else:
+        modes_to_run = [(args.mode, fast_rollback, ddtree_budget_actual)]
+
+    for mode_name, fr, budget in modes_to_run:
+        print(f"\n{'='*62}")
+        print(f"[bench] mode={mode_name}  n_gen={args.n_gen}  budget={budget}")
+        print(f"{'prompt':28s}  {'steps':>6s} {'AL':>6s} {'pct%':>6s} {'tok/s':>8s}")
+        print("-" * 62)
+
+        results = []
+        for i, (name, _) in enumerate(PROMPTS):
+            path = _prompt_path(i, tok_slug)
+            try:
+                r = run_test_dflash(path, args.n_gen,
+                                    fast_rollback=fr,
+                                    ddtree_budget=budget,
+                                    ddtree_temp=args.ddtree_temp,
+                                    ddtree_no_chain_seed=args.ddtree_no_chain_seed,
+                                    ddtree_guard_threshold=args.ddtree_guard_threshold,
+                                    extra_args=extra_args,
+                                    extra_env=extra_env)
+            except Exception as e:
+                print(f"  [{i:02d}] {name:26s}  FAILED: {e}")
+                continue
+            results.append((name, r))
+            print(
+                f"  {name:26s}  {r['steps']:6d} {r['commit_per_step']:6.2f} "
+                f"{r['pct']:6.1f} {r['tok_s']:8.2f}"
+            )
+
+        if not results:
+            print("no successful runs")
             continue
-        results.append((name, r))
-        print(
-            f"  {name:26s}  {r['steps']:6d} {r['commit_per_step']:6.2f} "
-            f"{r['pct']:6.1f} {r['tok_s']:8.2f}"
-        )
 
-    if not results:
-        print("no successful runs")
-        sys.exit(1)
+        n = len(results)
+        mean_al = sum(r["commit_per_step"] for _, r in results) / n
+        mean_tps = sum(r["tok_s"] for _, r in results) / n
+        mean_pct = sum(r["pct"] for _, r in results) / n
 
-    n = len(results)
-    mean_al = sum(r["commit_per_step"] for _, r in results) / n
-    mean_tps = sum(r["tok_s"] for _, r in results) / n
-    mean_pct = sum(r["pct"] for _, r in results) / n
-
-    print("-" * 62)
-    print(f"{'MEAN':28s}  {'':6s} {mean_al:6.2f} {mean_pct:6.1f} {mean_tps:8.2f}")
-    print()
-    print(f"commit/step range: {min(r['commit_per_step'] for _,r in results):.2f} - "
-          f"{max(r['commit_per_step'] for _,r in results):.2f}")
-    print(f"tok/s range:        {min(r['tok_s'] for _,r in results):.1f} - "
-          f"{max(r['tok_s'] for _,r in results):.1f}")
+        print("-" * 62)
+        print(f"{'MEAN':28s}  {'':6s} {mean_al:6.2f} {mean_pct:6.1f} {mean_tps:8.2f}")
+        print()
+        print(f"commit/step range: {min(r['commit_per_step'] for _,r in results):.2f} - "
+              f"{max(r['commit_per_step'] for _,r in results):.2f}")
+        print(f"tok/s range:        {min(r['tok_s'] for _,r in results):.1f} - "
+              f"{max(r['tok_s'] for _,r in results):.1f}")
 
 
 if __name__ == "__main__":
