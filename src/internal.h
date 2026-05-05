@@ -53,6 +53,15 @@ struct TargetLayer {
     ggml_tensor * w_up           = nullptr;  // [hidden, intermediate]
     ggml_tensor * w_down         = nullptr;  // [intermediate, hidden]
 
+    // MoE FFN tensors (non-null when layer uses MoE instead of dense FFN)
+    ggml_tensor * ffn_gate_inp    = nullptr;  // [hidden, expert_count]     router
+    ggml_tensor * ffn_gate_exps   = nullptr;  // [hidden, n_ff, n_expert]   expert gate weights (3D)
+    ggml_tensor * ffn_up_exps     = nullptr;  // [hidden, n_ff, n_expert]   expert up weights (3D)
+    ggml_tensor * ffn_down_exps   = nullptr;  // [n_ff, hidden, n_expert]   expert down weights (3D)
+    ggml_tensor * ffn_gate_shexp  = nullptr;  // [hidden, n_ff_shared]      shared expert gate
+    ggml_tensor * ffn_up_shexp    = nullptr;  // [hidden, n_ff_shared]      shared expert up
+    ggml_tensor * ffn_down_shexp  = nullptr;  // [n_ff_shared, hidden]      shared expert down
+
     // Full-attention block (non-null for layers where (il+1) % 4 == 0)
     ggml_tensor * wq             = nullptr;  // [hidden, q_dim]
     ggml_tensor * wk             = nullptr;  // [hidden, kv_dim]
@@ -128,6 +137,13 @@ struct TargetWeights {
     int ssm_dt_rank             = 48;
     int ssm_n_group             = 16;
 
+    // MoE-specific metadata (only valid when is_moe == true)
+    bool is_moe                 = false;
+    int expert_count            = 0;   // total number of experts (256)
+    int expert_used_count       = 0;   // top-k experts per token (8)
+    int n_ff_expert             = 0;   // per-expert FFN intermediate size (512)
+    int n_ff_shared             = 0;   // shared expert FFN intermediate size (512)
+
     // EOS token ids loaded from the GGUF tokenizer metadata
     // (`tokenizer.ggml.eos_token_id` and `tokenizer.ggml.eot_token_id`).
     // -1 = key absent in this GGUF; the runtime EOS check guards both
@@ -138,7 +154,7 @@ struct TargetWeights {
     // Target layer IDs captured for the DFlash draft model.
     // Computed from n_layer at load time: step = (n_layer - 2) / (N - 1),
     // ids[k] = 1 + k * step.  E.g. 27B→{1,16,31,46,61}, 9B→{1,8,15,22,29}.
-    int capture_layer_ids[DFLASH27B_DRAFT_N_TARGET_LAYERS] = {1, 16, 31, 46, 61};
+    int capture_layer_ids[5] = {1, 16, 31, 46, 61};
 };
 
 // Load a Q4_K_M target model from a GGUF file on disk.
@@ -176,12 +192,12 @@ struct DraftWeights {
     ggml_tensor *          out_norm    = nullptr;   // [hidden]
 
     // Architecture metadata (populated by loader).
-    int n_layer   = DFLASH27B_DRAFT_LAYERS;           // 5
-    int n_head    = DFLASH27B_TARGET_N_HEADS;          // 32
-    int n_head_kv = DFLASH27B_TARGET_N_KV_HEADS;       // 8
-    int head_dim  = DFLASH27B_TARGET_HEAD_DIM;         // 128
-    int n_embd    = DFLASH27B_TARGET_HIDDEN;           // 5120
-    int n_ff      = DFLASH27B_TARGET_INTERMEDIATE;     // 17408
+    int n_layer   = 5;      // overwritten by loader
+    int n_head    = 32;     // overwritten by loader
+    int n_head_kv = 8;      // overwritten by loader
+    int head_dim  = 128;    // overwritten by loader
+    int n_embd    = 5120;   // overwritten by loader
+    int n_ff      = 17408;  // overwritten by loader
 };
 
 bool load_draft_safetensors(const std::string & path,

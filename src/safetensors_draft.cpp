@@ -371,8 +371,56 @@ bool load_draft_safetensors(const std::string & path,
     const uint8_t * blob = (const uint8_t *)mm.addr + 8 + header_len;
     const size_t    blob_len = mm.len - 8 - header_len;
 
-    // ── 3. Allocate ggml context big enough for 5 layers × 11 + 3 top ─
-    const int n_layers    = DFLASH27B_DRAFT_LAYERS;
+    // ── 3. Auto-detect dimensions from safetensors header ────────
+    {
+        auto it_fc = st.find("fc.weight");
+        if (it_fc != st.end() && it_fc->second.shape.size() == 2) {
+            int64_t fc_out = it_fc->second.shape[0];  // hidden
+            int64_t fc_in  = it_fc->second.shape[1];  // n_target_layers * hidden
+            if (fc_out > 0 && fc_in > fc_out && (fc_in % fc_out) == 0) {
+                g_dflash_config.target_hidden = (int)fc_out;
+                g_dflash_config.draft_n_target_layers = (int)(fc_in / fc_out);
+            }
+        }
+        auto it_q = st.find("layers.0.self_attn.q_proj.weight");
+        if (it_q != st.end() && it_q->second.shape.size() == 2) {
+            g_dflash_config.draft_q_dim = (int)it_q->second.shape[0];
+        }
+        auto it_k = st.find("layers.0.self_attn.k_proj.weight");
+        if (it_k != st.end() && it_k->second.shape.size() == 2) {
+            g_dflash_config.draft_kv_dim = (int)it_k->second.shape[0];
+        }
+        auto it_gate = st.find("layers.0.mlp.gate_proj.weight");
+        if (it_gate != st.end() && it_gate->second.shape.size() == 2) {
+            g_dflash_config.draft_intermediate = (int)it_gate->second.shape[0];
+        }
+        auto it_qnorm = st.find("layers.0.self_attn.q_norm.weight");
+        if (it_qnorm != st.end() && it_qnorm->second.shape.size() == 1) {
+            g_dflash_config.draft_head_dim = (int)it_qnorm->second.shape[0];
+        }
+        // Derive n_heads and n_kv_heads from q_dim/kv_dim and head_dim
+        if (g_dflash_config.draft_head_dim > 0) {
+            g_dflash_config.draft_n_heads = g_dflash_config.draft_q_dim / g_dflash_config.draft_head_dim;
+            g_dflash_config.draft_n_kv_heads = g_dflash_config.draft_kv_dim / g_dflash_config.draft_head_dim;
+        }
+        // Count layers by scanning for layers.0 .. layers.N entries
+        {
+            int max_layer = -1;
+            for (auto & kv : st) {
+                const std::string & nm = kv.first;
+                if (nm.substr(0, 7) == "layers.") {
+                    int lid = std::atoi(nm.c_str() + 7);
+                    if (lid > max_layer) max_layer = lid;
+                }
+            }
+            if (max_layer >= 0) {
+                g_dflash_config.draft_layers = max_layer + 1;
+            }
+        }
+    }
+
+    // ── 4. Allocate ggml context big enough for n_layers × 11 + 3 top ─
+    const int n_layers    = g_dflash_config.draft_layers;
     const int n_tensors   = 3 + 11 * n_layers;  // with some headroom below
     ggml_init_params ip{};
     ip.mem_size   = (size_t)(n_tensors + 16) * ggml_tensor_overhead();
@@ -382,11 +430,11 @@ bool load_draft_safetensors(const std::string & path,
     if (!out.ctx) { set_last_error("ggml_init failed for draft ctx"); return false; }
     out.backend = backend;
     out.n_layer   = n_layers;
-    out.n_head    = DFLASH27B_TARGET_N_HEADS;
-    out.n_head_kv = DFLASH27B_TARGET_N_KV_HEADS;
-    out.head_dim  = DFLASH27B_TARGET_HEAD_DIM;
-    out.n_embd    = DFLASH27B_TARGET_HIDDEN;
-    out.n_ff      = DFLASH27B_TARGET_INTERMEDIATE;
+    out.n_head    = g_dflash_config.draft_n_heads;
+    out.n_head_kv = g_dflash_config.draft_n_kv_heads;
+    out.head_dim  = g_dflash_config.draft_head_dim;
+    out.n_embd    = g_dflash_config.target_hidden;
+    out.n_ff      = g_dflash_config.draft_intermediate;
     out.layers.assign(n_layers, DraftLayer{});
 
     const int64_t HIDDEN  = out.n_embd;
@@ -394,9 +442,9 @@ bool load_draft_safetensors(const std::string & path,
     const int64_t KV_DIM  = out.n_head_kv * out.head_dim;
     const int64_t INTER   = out.n_ff;
     const int64_t HD      = out.head_dim;
-    const int64_t FC_IN   = DFLASH27B_DRAFT_N_TARGET_LAYERS * HIDDEN;
+    const int64_t FC_IN   = g_dflash_config.draft_n_target_layers * HIDDEN;
 
-    // ── 4. Create named tensors in the context ───────────────────
+    // ── 5. Create named tensors in the context ───────────────────
     //
     // Norms (rms_norm weights) are loaded as F32 because ggml's CUDA
     // elementwise ops require F32/F16 operands. Projection weights stay bf16
@@ -433,7 +481,7 @@ bool load_draft_safetensors(const std::string & path,
         }
     }
 
-    // ── 5. Allocate backend buffer, copy bytes ───────────────────
+    // ── 6. Allocate backend buffer, copy bytes ───────────────────
     out.buf = ggml_backend_alloc_ctx_tensors(out.ctx, backend);
     if (!out.buf) { set_last_error("ggml_backend_alloc_ctx_tensors failed (draft)"); return false; }
 

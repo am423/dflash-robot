@@ -11,7 +11,7 @@ DraftCapabilities Qwen3DFlashDraftAdapter::capabilities() const {
         5,                                   // n_layers
         5120,                                // hidden_size
         5,                                   // required_target_features
-        {"qwen35"}                           // compatible_target_arches
+        {"qwen35", "qwen35moe"}                // compatible_target_arches
     };
 }
 

@@ -139,8 +139,8 @@ int main(int argc, char** argv) {
     target.supports_cache_rollback = false;
     target.has_ssm_state = false;
 
-    // If we have a qwen35 adapter, fill in capabilities
-    if (arch == "qwen35") {
+    // If we have a qwen35 or qwen35moe adapter, fill in capabilities
+    if (arch == "qwen35" || arch == "qwen35moe") {
         Qwen35Adapter adapter(target.n_layers, target.hidden_size, target.vocab_size);
         ModelCapabilities full = adapter.capabilities();
         target.supports_hidden_capture = full.supports_hidden_capture;

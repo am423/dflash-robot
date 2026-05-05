@@ -5,7 +5,8 @@ namespace dflash_robot {
 
 CompatibilityResult check_compatibility(const ModelCapabilities& target, const DraftCapabilities& draft) {
     // qwen35 + qwen3_dflash = supported
-    if (target.arch == "qwen35" && draft.family == "qwen3_dflash") {
+    if ((target.arch == "qwen35" || target.arch == "qwen35moe") &&
+        draft.family == "qwen3_dflash") {
         return {true, "supported", ""};
     }
 
@@ -28,9 +29,9 @@ CompatibilityResult classify_model(const ModelCapabilities& target, const DraftC
     }
 
     // No draft provided
-    if (target.arch == "qwen35") {
+    if (target.arch == "qwen35" || target.arch == "qwen35moe") {
         return {false, "adapter_exists_draft_missing",
-                "No DFlash draft found for qwen35 target"};
+                "No DFlash draft found for " + target.arch + " target"};
     }
 
     return {false, "unsupported_architecture",

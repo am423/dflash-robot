@@ -83,12 +83,20 @@ int main(int argc, char ** argv) {
             std::printf("wqkv=%s[%" PRId64 ",%" PRId64 "] ",
                 ggml_type_name(L.wqkv->type), L.wqkv->ne[0], L.wqkv->ne[1]);
         }
-        std::printf("ffn_down=%s\n", ggml_type_name(L.w_down->type));
+        if (L.ffn_gate_exps) {
+            std::printf("MoE: gate_exps=%s[%" PRId64 ",%" PRId64 ",%" PRId64 "] ",
+                ggml_type_name(L.ffn_gate_exps->type),
+                L.ffn_gate_exps->ne[0], L.ffn_gate_exps->ne[1], L.ffn_gate_exps->ne[2]);
+        } else if (L.w_down) {
+            std::printf("ffn_down=%s ", ggml_type_name(L.w_down->type));
+        }
+        std::printf("\n");
     };
     print_layer(0);
     print_layer(3);
-    print_layer(31);
-    print_layer(63);
+    if (w.n_layer > 31) print_layer(31);
+    if (w.n_layer > 39) print_layer(63);
+    else print_layer(w.n_layer - 1);
 
     free_target_weights(w);
     ggml_backend_free(backend);

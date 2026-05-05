@@ -27,8 +27,9 @@ static void test_capabilities() {
     CHECK(caps.max_inference_block_size == 16, "max_inference_block_size=16");
     CHECK(caps.n_layers == 5, "n_layers=5");
     CHECK(caps.required_target_features == 5, "required_target_features=5");
-    CHECK(caps.compatible_target_arches.size() == 1, "one compatible arch");
+    CHECK(caps.compatible_target_arches.size() == 2, "two compatible arches");
     CHECK(caps.compatible_target_arches[0] == "qwen35", "compatible with qwen35");
+    CHECK(caps.compatible_target_arches[1] == "qwen35moe", "compatible with qwen35moe");
 }
 
 static void test_validate_qwen35() {

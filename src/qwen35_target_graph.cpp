@@ -651,6 +651,83 @@ static ggml_tensor * build_swiglu_ffn(ggml_context * ctx, ggml_tensor * cur,
     return ggml_mul_mat(ctx, L.w_down, gu);                  // [hidden, n_tokens]
 }
 
+// MoE FFN block (for qwen35moe layers)
+//
+// Implements Mixture-of-Experts FFN with:
+//   1. Router: gate_inp @ cur → [n_expert, n_tokens]
+//   2. Softmax + top-k expert selection
+//   3. Per-expert SwiGLU FFN via ggml_mul_mat_id
+//   4. Weighted sum of expert outputs
+//   5. Plus shared expert SwiGLU FFN
+//
+// Mirrors llama.cpp's build_moe_ffn but simplified for our use case.
+static ggml_tensor * build_moe_ffn(
+    ggml_context *         ctx,
+    ggml_cgraph *          gf,
+    const TargetWeights &  w,
+    const TargetLayer &    L,
+    ggml_tensor *          cur)      // [hidden, n_tokens]
+{
+    const int64_t n_embd        = cur->ne[0];
+    const int64_t n_tokens      = cur->ne[1];
+    const int64_t n_expert      = w.expert_count;
+    const int64_t n_expert_used = w.expert_used_count;
+
+    // ── Router: logits = gate_inp @ cur    [n_expert, n_tokens]
+    ggml_tensor * logits = ggml_mul_mat(ctx, L.ffn_gate_inp, cur);
+    ggml_tensor * probs  = ggml_soft_max(ctx, logits);  // [n_expert, n_tokens]
+
+    // ── Top-k expert selection
+    ggml_tensor * selected_experts = ggml_argsort_top_k(ctx, probs, (int)n_expert_used);
+    // selected_experts: [n_expert_used, n_tokens] i32
+
+    // ── Gather expert weights for selected experts
+    // probs_3d: [1, n_expert, n_tokens]
+    ggml_tensor * probs_3d = ggml_reshape_3d(ctx, probs, 1, n_expert, n_tokens);
+    // weights: [1, n_expert_used, n_tokens]
+    ggml_tensor * weights = ggml_get_rows(ctx, probs_3d, selected_experts);
+
+    // ── Reshape cur to 3D for mul_mat_id: [n_embd, 1, n_tokens]
+    ggml_tensor * cur_3d = ggml_reshape_3d(ctx, cur, n_embd, 1, n_tokens);
+
+    // ── Expert gate and up projections
+    // gate_exps: [n_embd, n_ff, n_expert] → gate: [n_ff, n_expert_used, n_tokens]
+    ggml_tensor * gate = ggml_mul_mat_id(ctx, L.ffn_gate_exps, cur_3d, selected_experts);
+    // up_exps:   [n_embd, n_ff, n_expert] → up:   [n_ff, n_expert_used, n_tokens]
+    ggml_tensor * up   = ggml_mul_mat_id(ctx, L.ffn_up_exps,   cur_3d, selected_experts);
+
+    // ── SwiGLU activation
+    ggml_tensor * swiglu = ggml_swiglu_split(ctx, gate, up);  // [n_ff, n_expert_used, n_tokens]
+
+    // ── Expert down projection
+    // down_exps: [n_ff, n_embd, n_expert] → experts: [n_embd, n_expert_used, n_tokens]
+    ggml_tensor * experts = ggml_mul_mat_id(ctx, L.ffn_down_exps, swiglu, selected_experts);
+
+    // ── Weight by router probabilities and sum over experts
+    experts = ggml_mul(ctx, experts, weights);  // [n_embd, n_expert_used, n_tokens]
+
+    // Sum over expert dimension (dim 1): view each expert slice and accumulate
+    ggml_tensor * moe_out = ggml_view_2d(ctx, experts,
+        n_embd, n_tokens, experts->nb[2], 0);
+    for (int64_t i = 1; i < n_expert_used; i++) {
+        ggml_tensor * ei = ggml_view_2d(ctx, experts,
+            n_embd, n_tokens, experts->nb[2], i * experts->nb[1]);
+        moe_out = ggml_add(ctx, moe_out, ei);
+    }
+    moe_out = ggml_cont(ctx, moe_out);  // [n_embd, n_tokens]
+
+    // ── Shared expert (always active)
+    if (L.ffn_gate_shexp && L.ffn_up_shexp && L.ffn_down_shexp) {
+        ggml_tensor * sh_gate = ggml_mul_mat(ctx, L.ffn_gate_shexp, cur);  // [n_ff_shared, n_tokens]
+        ggml_tensor * sh_up   = ggml_mul_mat(ctx, L.ffn_up_shexp,   cur);
+        ggml_tensor * sh_gu   = ggml_swiglu_split(ctx, sh_gate, sh_up);
+        ggml_tensor * sh_down = ggml_mul_mat(ctx, L.ffn_down_shexp, sh_gu);  // [n_embd, n_tokens]
+        moe_out = ggml_add(ctx, moe_out, sh_down);
+    }
+
+    return moe_out;  // [n_embd, n_tokens]
+}
+
 // Full-attention block (matches llama.cpp's build_layer_attn for qwen35)
 //
 // `cache_k` / `cache_v` are the persistent KV buffers for this layer
@@ -1135,7 +1212,9 @@ static ggml_tensor * build_single_layer(
 
     ggml_tensor * ffn_residual = cur;
     ggml_tensor * post = rms_norm_mul(ctx, cur, L.attn_post_norm, eps);
-    ggml_tensor * ffn  = build_swiglu_ffn(ctx, post, L);
+    ggml_tensor * ffn  = L.ffn_gate_inp
+        ? build_moe_ffn(ctx, gf, w, L, post)
+        : build_swiglu_ffn(ctx, post, L);
     cur = ggml_add(ctx, ffn, ffn_residual);
 
     if (capture && cache.target_feat) {

@@ -55,6 +55,7 @@ find_package(CUDAToolkit REQUIRED)
 
 add_library(dflash27b STATIC
     src/errors.cpp
+    src/dflash_config.cpp
     src/gguf_target_loader.cpp
     src/gguf_draft_loader.cpp
     src/safetensors_draft.cpp

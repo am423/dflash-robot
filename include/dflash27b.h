@@ -17,6 +17,28 @@ extern "C" {
 
 // ─── Model config ─────────────────────────────────────────────────
 
+// Runtime-configurable draft dimensions. Defaults match the z-lab 27B draft.
+// Updated automatically by load_draft_safetensors() when the safetensors
+// header reveals different shapes (e.g. hidden=2048 for a 35B-A3B draft).
+#ifdef __cplusplus
+struct DFlashConfig {
+    int target_hidden        = 5120;
+    int target_intermediate  = 17408;
+    int target_vocab         = 248320;
+    int draft_layers         = 5;
+    int draft_block_size     = 16;
+    int draft_n_target_layers = 5;
+    int draft_mask_token_id  = 248070;
+    int draft_q_dim          = 4096;
+    int draft_kv_dim         = 1024;
+    int draft_intermediate   = 17408;
+    int draft_head_dim       = 128;
+    int draft_n_heads        = 32;
+    int draft_n_kv_heads     = 8;
+};
+extern DFlashConfig g_dflash_config;
+#endif // __cplusplus
+
 #define DFLASH27B_TARGET_HIDDEN        5120
 #define DFLASH27B_TARGET_LAYERS        64
 // NOTE: the `DFLASH27B_TARGET_N_*` / `_HEAD_DIM` macros below are DRAFT
