@@ -42,7 +42,6 @@ def load_target_model(model_id: str, device_map: str = "auto"):
         device_map=device_map,
         trust_remote_code=True,
         torch_dtype=torch.bfloat16,
-        attn_implementation="flash_attention_2",
     )
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)

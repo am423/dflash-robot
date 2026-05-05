@@ -32,3 +32,4 @@ Thumbs.db
 
 # Large result files (keep parsed, skip raw logs > 1MB)
 results/raw/*.log
+results/

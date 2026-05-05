@@ -22,6 +22,8 @@ from typing import Iterator, Optional
 import torch
 from torch.utils.data import IterableDataset
 
+from config import DRAFT_CONFIG
+
 
 class DFlashTraceDataset(IterableDataset):
     """Streaming dataset of training traces with random anchor sampling.
@@ -55,7 +57,10 @@ class DFlashTraceDataset(IterableDataset):
         self.max_ctx_len = max_ctx_len
         self.loss_decay = loss_decay
 
-        self.trace_paths = sorted(self.trace_dir.glob("trace_*.pt"))
+        self.trace_paths = sorted(
+            list(self.trace_dir.glob("trace_*.pt")) +
+            list(self.trace_dir.glob("trace_*.bin")) +
+            list(self.trace_dir.glob("trace_*")))  # catch anything else
         if shuffle_files:
             random.Random(seed).shuffle(self.trace_paths)
 

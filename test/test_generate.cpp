@@ -312,7 +312,7 @@ int main(int argc, char ** argv) {
         int idx = 0;
         while (true) {
             std::snprintf(trace_path, sizeof(trace_path),
-                          "%s/trace_%06d.pt", g_trace_dir.c_str(), idx);
+                          "%s/trace_%06d.bin", g_trace_dir.c_str(), idx);
             FILE * f = std::fopen(trace_path, "rb");
             if (!f) break;
             std::fclose(f);

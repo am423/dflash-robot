@@ -37,7 +37,7 @@ DRAFT_CONFIG = {
     'target_model_id': 'Qwen/Qwen3.6-35B-A3B',
     'capture_layer_ids': [1, 7, 14, 21, 27],
     'target_gguf_path': 'models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
-    'vocab_size': 151936,  # Qwen3 tokenizer vocab size
+    'vocab_size': 248320,  # Qwen3.6 output vocab (matches GGUF output.weight)
 
     # Paths
     'trace_dir': 'training/traces/',
