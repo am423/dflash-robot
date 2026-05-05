@@ -44,13 +44,13 @@ def export_to_safetensors(
     state_dict = {}
     model_state = model.state_dict()
 
-    # FC: PyTorch [hidden, N*hidden] -> safetensors [N*hidden, hidden]
+    # FC: PyTorch [hidden, N*hidden] — already correct for safetensors (hidden first)
     if 'fc.weight' in model_state:
-        state_dict['fc.weight'] = model_state['fc.weight'].to(dtype).T.contiguous()
+        state_dict['fc.weight'] = model_state['fc.weight'].to(dtype).contiguous()
     if 'hidden_norm.weight' in model_state:
         state_dict['hidden_norm.weight'] = model_state['hidden_norm.weight'].to(dtype)
     if 'out_norm.weight' in model_state:
-        state_dict['out_norm.weight'] = model_state['out_norm.weight'].to(dtype)
+        state_dict['norm.weight'] = model_state['out_norm.weight'].to(dtype)
 
     # Layers
     n_layers = config['num_draft_layers']
@@ -103,9 +103,9 @@ def export_to_safetensors(
     intermediate = config['intermediate_size']
 
     expected = {
-        'fc.weight': [n_feat * hidden, hidden],
+        'fc.weight': [hidden, n_feat * hidden],
         'hidden_norm.weight': [hidden],
-        'out_norm.weight': [hidden],
+        'norm.weight': [hidden],
     }
     for i in range(n_layers):
         p = f'layers.{i}'
