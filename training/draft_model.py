@@ -1,6 +1,6 @@
 """DFlash draft model architecture for Qwen3.6-35B-A3B.
 
-Matches the z-lab/Qwen3.6-35B-A3B-DFlash architecture exactly.
+Matches the r0b0tlab/Qwen3.6-35B-A3B-DFlash architecture exactly.
 5-layer non-causal transformer (paper: 5 layers best avg speedup).
 KV injection: target features projected through draft's wk/wv, concatenated.
 SwiGLU FFN. Shared/frozen target embedding + lm_head.

@@ -1,8 +1,8 @@
-# Purpose-Built DFlash Draft Model Plan
+# r0b0tlab Purpose-Built DFlash Draft Model Plan
 
 ## Why Build Our Own Draft
 
-The z-lab draft model (Qwen3.6-35B-A3B-DFlash) has a calibration issue: it confidently predicts garbage tokens on certain input patterns (confirmed on HumanEval prompt #5 "intersperse"). Root cause: the draft was trained on Nemotron/CodeAlpaca data, not our target model's actual outputs. A purpose-built draft trained on OUR target model's hidden states eliminates this mismatch.
+The upstream draft model (Qwen3.6-35B-A3B-DFlash) has a calibration issue: it confidently predicts garbage tokens on certain input patterns (confirmed on HumanEval prompt #5 "intersperse"). Root cause: the draft was trained on Nemotron/CodeAlpaca data, not our target model's actual outputs. A purpose-built draft trained on OUR target model's hidden states eliminates this mismatch.
 
 ## Target Setup
 

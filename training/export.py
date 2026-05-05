@@ -3,7 +3,7 @@
 Produces a model.safetensors file compatible with dflash-robot's
 load_draft_safetensors() loader.
 
-Output matches z-lab's format exactly:
+Output matches r0b0tlab's format exactly:
   - fc.weight: [hidden, N*hidden]
   - hidden_norm.weight: [hidden]
   - layers.{i}.input_layernorm.weight: [hidden]
@@ -37,7 +37,7 @@ def export_to_safetensors(
 ):
     """Export draft model weights to safetensors format.
 
-    Weight naming matches z-lab's convention:
+    Weight naming matches r0b0tlab's convention:
       - PyTorch: fc.weight [hidden, N*hidden]
       - Safetensors: fc.weight with shape [N*hidden, hidden] (column-major for ggml)
     """
@@ -196,7 +196,7 @@ def main():
     save_config(args.output_dir, DRAFT_CONFIG, total_params)
 
     # Save as a copy named for the specific model
-    model_name = f"qwen36-35b-a3b-dflash-v1.safetensors"
+    model_name = f"r0b0tlab-qwen36-35b-a3b-dflash-v1.safetensors"
     copy_path = os.path.join(args.output_dir, model_name)
     if copy_path != output_path:
         import shutil

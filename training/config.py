@@ -1,6 +1,6 @@
 """DFlash draft model configuration for Qwen3.6-35B-A3B.
 
-Based on z-lab/Qwen3.6-35B-A3B-DFlash dimensions.
+Based on r0b0tlab/Qwen3.6-35B-A3B-DFlash dimensions.
 5-layer draft (best avg speedup per paper, Section 5.4.2).
 """
 
@@ -42,5 +42,5 @@ DRAFT_CONFIG = {
     # Paths
     'trace_dir': 'training/traces/',
     'checkpoint_dir': 'training/checkpoints/',
-    'export_path': 'models/draft/qwen36-35b-a3b-dflash-v1.safetensors',
+    'export_path': 'models/draft/r0b0tlab-qwen36-35b-a3b-dflash-v1.safetensors',
 }
