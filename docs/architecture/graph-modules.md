@@ -50,6 +50,11 @@ Common patterns:
 - **MoE FFN**: router, top-k expert selection, per-expert FFN, shared expert
 - **Sliding window attention**: limited attention range for long contexts
 
+For DFlash, also classify where target hidden states are captured and how the
+compatible draft consumes them (`target_layer_ids`, `target_hidden_size`,
+`fc.weight`, vocab/d2t mapping). Runtime graph support alone does not imply
+acceleration; a compatible trained draft is still required.
+
 ### 5. Implement the Module
 
 1. Create `include/graph/<arch>_module.h`
@@ -75,6 +80,44 @@ Before marking an architecture as supported:
 Update `src/graph/model_graph_registry.cpp` to register the new module,
 then update `src/runtime/compatibility_registry.cpp` if needed for
 draft compatibility classification.
+
+## Qwen35MoE / Qwen3.6-35B-A3B Notes
+
+`qwen35moe` is the first MoE target module. The module validates MoE metadata
+and tensors, then uses the shared qwen35 graph builder; the builder selects the
+MoE FFN path when MoE tensors are present.
+
+Required metadata:
+- `general.architecture = qwen35moe`
+- `qwen35moe.expert_count`
+- `qwen35moe.expert_used_count`
+- `qwen35moe.expert_shared_feed_forward_length`
+
+Required MoE tensors per layer:
+- `ffn_gate_inp.weight`
+- `ffn_gate_exps.weight`
+- `ffn_up_exps.weight`
+- `ffn_down_exps.weight`
+- `ffn_gate_shexp.weight`
+- `ffn_up_shexp.weight`
+- `ffn_down_shexp.weight`
+- `ffn_gate_inp_shexp.weight` when present
+
+Correctness requirements:
+1. Route MoE layers through the MoE FFN graph, not dense SwiGLU.
+2. After router softmax + top-k, renormalize selected expert weights per token
+   (`sum_rows`, clamp min `6.103515625e-5`, divide). This matches llama.cpp
+   `norm_w=true` for qwen35moe.
+3. Apply the shared expert sigmoid gate:
+   `shared_out *= sigmoid(ffn_gate_inp_shexp @ cur)` before adding it to the
+   routed expert output.
+4. Verify target capture layer IDs against the draft config. For the known
+   40-layer Qwen3.6-35B-A3B DFlash draft with five target captures, the fixed
+   IDs are `{1,10,19,28,37}`.
+
+Performance note: on RTX 3090 the current qwen35moe path is verify-compute
+bound without fused ggml-cuda MoE kernels. Correct graph semantics do not imply
+DFlash beats same-harness AR speed for this MoE target.
 
 ## Common Pitfalls
 
@@ -103,3 +146,14 @@ draft compatibility classification.
 - Always use the same tokenizer that matches the target model
 - Draft vocab must map to target vocab (via d2t mapping or identical vocab)
 - EOS token IDs come from GGUF metadata
+
+### MoE Correctness
+
+- Do not leave stale `under_development` capability notes after MoE graph
+  semantics are implemented; use precise performance limitations instead.
+- Check all MoE graph call sites. A helper existing in the file is not enough
+  if the main graph path still calls dense FFN unconditionally.
+- For qwen35moe, selected expert weights must be renormalized per token and
+  shared expert output must be gated with `sigmoid(ffn_gate_inp_shexp @ cur)`.
+- A correct MoE graph may still be slower than AR on RTX 3090 because verify is
+  compute-bound without fused ggml-cuda MoE kernels.

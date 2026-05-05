@@ -1,6 +1,10 @@
 // Qwen35 MoE graph module implementation (qwen35moe architecture).
-// Currently delegates to existing graph builder; M3 will replace
-// build_graph with proper MoE FFN support.
+//
+// This module validates qwen35moe metadata/tensors and delegates graph
+// construction to the shared qwen35 builder. The shared builder selects the
+// MoE FFN path when TargetWeights::is_moe / layer MoE tensors are present.
+// Current performance limitation is ggml-cuda MoE verify cost, not missing MoE
+// graph semantics.
 
 #include "graph/qwen35_moe_module.h"
 #include "internal.h"
@@ -16,7 +20,8 @@ TargetGraphModuleCapabilities Qwen35MoeModule::capabilities() const {
         true,   // supports_hidden_capture
         true,   // supports_rollback
         true,   // supports_tree_verify
-        {"moe_ffn_under_development"}  // known_limitations
+        {"moe_verify_compute_bound_without_fused_cuda_moe",
+         "performance_not_expected_to_exceed_ar_on_rtx3090"}  // known_limitations
     };
 }
 
@@ -75,7 +80,6 @@ QwenGraphOutputs Qwen35MoeModule::build_graph(ggml_context * ctx,
                                                const TargetWeights & w,
                                                TargetCache & cache,
                                                const QwenGraphInputs & in) const {
-    // M3: replace with proper MoE FFN implementation
     return dflash27b::build_qwen35_graph(ctx, gf, w, cache, in);
 }
 
