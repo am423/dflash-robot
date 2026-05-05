@@ -1,0 +1,52 @@
+{
+  "model": "Qwen3.6-35B-A3B-UD-Q4_K_M",
+  "framework": "dflash-robot d24e677",
+  "gpu": {"name": "NVIDIA GeForce RTX 3090", "total_mb": 24576},
+  "commit": "d24e677",
+  "target_hash": "unspecified",
+  "draft": "z-lab/Qwen3.6-35B-A3B-DFlash (42d3b34d)",
+  "prompt": "Here is a Python function to reverse a linked list:\n\n",
+  "prompt_tokens": 12,
+  "gen_tokens": 64,
+  "ar": {
+    "tok_s": 105.20,
+    "total_s": 0.608
+  },
+  "dflash": {
+    "tok_s": 82.94,
+    "total_s": 0.772,
+    "steps": 15,
+    "accepted": 50,
+    "total_proposed": 240,
+    "acceptance_pct": 20.8,
+    "commit_per_step": 4.27,
+    "speedup_vs_ar": 0.79,
+    "timing_ms": {
+      "draft_build": 0.11,
+      "draft_copyfeat": 0.03,
+      "draft_set": 0.02,
+      "draft_compute": 7.46,
+      "draft_bridge": 0.00,
+      "draft_logits": 0.01,
+      "snapshot_ssm": 0.46,
+      "verify_build": 0.73,
+      "verify_set": 0.04,
+      "verify_compute": 26.37,
+      "verify_logits": 0.01,
+      "accept": 0.00,
+      "restore_ssm": 0.46,
+      "replay_build": 0.52,
+      "replay_set": 0.02,
+      "replay_compute": 14.90,
+      "replay_logits": 0.28,
+      "mirror_sync": 0.00,
+      "total": 51.44
+    }
+  },
+  "fixes_applied": [
+    "shared expert sigmoid gate (ffn_gate_inp_shexp): fc0cdde",
+    "capture layer IDs (n_layer-3, not n_layer-2): fc0cdde",
+    "MoE weight renormalization (norm_w=true): d24e677"
+  ],
+  "notes": "MoE verify (26.37ms/step) is the binding constraint. 40 MoE layers with Q4_K_M mul_mat_id on 256 experts (top-8). DFlash cannot exceed AR on RTX 3090 without fused MoE kernels or significantly higher acceptance."
+}
